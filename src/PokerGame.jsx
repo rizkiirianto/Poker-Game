@@ -151,8 +151,17 @@ function makePlayer(name, chips, isCpu=false, profile=null) {
 }
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────
-export default function PokerGame() {
-  const [phase, setPhase] = useState(PHASE.SETUP);
+export default function PokerGame({ 
+  onBackToMenu,
+  isMultiplayer = false,
+  socket = null,
+  roomCode = null,
+  playerId = null,
+  multiplayerPlayers = [],
+  isHost = false,
+  gameConfig = {}
+}) {
+  const [phase, setPhase] = useState(isMultiplayer ? PHASE.PLAYING : PHASE.SETUP);
   const [setupForm, setSetupForm] = useState({ name:'', chips:'1000000', smallBlind:'10000', numBots:'2', assist:'true', showProfiles:'true', blindMultiplier:'2', blindInterval:'10' });
   const [players, setPlayers] = useState([]);
   const [deck, setDeck] = useState([]);
@@ -179,6 +188,165 @@ export default function PokerGame() {
   const [blindLevel, setBlindLevel] = useState(1);
   const logRef = useRef(null);
   const gameStateRef = useRef({});
+
+  // ── MULTIPLAYER SYNC ──────────────────────────────────────────
+  // Initialize multiplayer game
+  useEffect(() => {
+    if (!isMultiplayer || !socket || !isHost) return;
+    
+    // Host initializes the game
+    const config = gameConfig;
+    const sc = parseInt(config.chips) || 1000000;
+    const sbl = parseInt(config.smallBlind) || 10000;
+    const bmVal = parseFloat(config.blindMultiplier) || 2;
+    const biVal = parseInt(config.blindInterval) || 10;
+    
+    // Create players from multiplayer lobby (no bots in multiplayer)
+    const ps = multiplayerPlayers.map(mp => makePlayer(mp.name, sc, false));
+    
+    setPlayers(ps);
+    setSmallBlind(sbl);
+    setBigBlind(sbl * 2);
+    setAssistMode(config.assist === 'true');
+    setShowBotProfiles(false); // No bots in multiplayer
+    setBlindMultiplier(bmVal);
+    setBlindIntervalMinutes(biVal);
+    setGameStartTime(Date.now());
+    setElapsedSeconds(0);
+    setBlindLevel(1);
+    setDealerIdx(0);
+    setLog([]);
+    
+    // Start the first hand
+    setTimeout(() => startHand(ps, 0, sbl, sbl * 2), 500);
+  }, []);
+
+  // Listen for game state updates (clients only)
+  useEffect(() => {
+    if (!isMultiplayer || !socket || isHost) return;
+    
+    const handleGameStateSync = ({ gameState }) => {
+      // Update all game state from host
+      setPlayers(gameState.players || []);
+      setDeck(gameState.deck || []);
+      setCommunity(gameState.community || []);
+      setPot(gameState.pot || 0);
+      setHighestBet(gameState.highestBet || 0);
+      setDealerIdx(gameState.dealerIdx || 0);
+      setSmallBlind(gameState.smallBlind || 10000);
+      setBigBlind(gameState.bigBlind || 20000);
+      setRound(gameState.round || ROUND.PRE_FLOP);
+      setCurrentTurn(gameState.currentTurn || 0);
+      setHasActed(gameState.hasActed || {});
+      setShowdown(gameState.showdown || null);
+      setPhase(gameState.phase || PHASE.PLAYING);
+      setElapsedSeconds(gameState.elapsedSeconds || 0);
+      setBlindLevel(gameState.blindLevel || 1);
+      
+      // Append new log entries
+      if (gameState.latestLog) {
+        setLog(prev => [...prev.slice(-60), gameState.latestLog]);
+      }
+    };
+
+    socket.on('game-state-sync', handleGameStateSync);
+    
+    return () => {
+      socket.off('game-state-sync', handleGameStateSync);
+    };
+  }, [isMultiplayer, socket, isHost]);
+
+  // Broadcast game state to clients (host only)
+  const broadcastGameState = useCallback(() => {
+    if (!isMultiplayer || !socket || !isHost || !roomCode) return;
+    
+    const gameState = {
+      players,
+      deck: [], // Don't send deck to clients (prevents cheating)
+      community,
+      pot,
+      highestBet,
+      dealerIdx,
+      smallBlind,
+      bigBlind,
+      round,
+      currentTurn,
+      hasActed,
+      showdown,
+      phase,
+      elapsedSeconds,
+      blindLevel,
+      latestLog: log[log.length - 1]
+    };
+    
+    socket.emit('game-state-update', { roomCode, gameState });
+  }, [isMultiplayer, socket, isHost, roomCode, players, community, pot, highestBet, dealerIdx, smallBlind, bigBlind, round, currentTurn, hasActed, showdown, phase, elapsedSeconds, blindLevel, log]);
+
+  // Auto-broadcast when game state changes (host only)
+  useEffect(() => {
+    if (!isMultiplayer || !isHost) return;
+    broadcastGameState();
+  }, [players, community, pot, highestBet, currentTurn, phase, showdown, round]);
+
+  // Listen for player actions from clients (host only)
+  useEffect(() => {
+    if (!isMultiplayer || !socket || !isHost) return;
+    
+    const handlePlayerActionReceived = ({ playerId: actionPlayerId, action }) => {
+      // Find the player by their socket ID
+      const mpPlayer = multiplayerPlayers.find(p => p.id === actionPlayerId);
+      if (!mpPlayer) return;
+      
+      // Find the corresponding game player
+      const gamePlayer = players.find(p => p.name === mpPlayer.name);
+      if (!gamePlayer) return;
+      
+      // Validate it's their turn
+      const currentPlayer = players[currentTurn];
+      if (!currentPlayer || currentPlayer.name !== gamePlayer.name) return;
+      
+      // Execute the action locally (this bypasses the multiplayer check in handleAction)
+      const ps = [...players.map(p=>({...p}))];
+      const p = ps[currentTurn];
+      if (!p || p.isFolded) return;
+      
+      const callAmt = highestBet - p.currentBet;
+      let newPot = pot, newHb = highestBet, newHa = {...hasActed};
+
+      if (action.type === 'fold') {
+        p.isFolded = true;
+        addLog(`${p.name} folds`, 'fold');
+      } else if (action.type === 'raise') {
+        const total = Math.min(callAmt + action.amount, p.chips);
+        if (total <= callAmt && p.chips > callAmt) return;
+        p.chips -= total;
+        p.currentBet += total;
+        newPot += total;
+        newHb = p.currentBet;
+        addLog(`${p.name} raises to Rp ${formatIDR(p.currentBet)}`, 'raise');
+        ps.forEach(x => newHa[x.name] = false);
+      } else if (action.type === 'call') {
+        const actual = Math.min(callAmt, p.chips);
+        p.chips -= actual;
+        p.currentBet += actual;
+        newPot += actual;
+        addLog(actual === 0 ? `${p.name} checks` : `${p.name} calls Rp ${formatIDR(actual)}`, 'call');
+      }
+      
+      newHa[p.name] = true;
+      setPlayers(ps);
+      setPot(newPot);
+      setHighestBet(newHb);
+      setHasActed(newHa);
+      advanceTurn(ps, currentTurn, newHb, newHa, newPot, community, round, dealerIdx, bigBlind);
+    };
+
+    socket.on('player-action-received', handlePlayerActionReceived);
+    
+    return () => {
+      socket.off('player-action-received', handlePlayerActionReceived);
+    };
+  }, [isMultiplayer, socket, isHost, multiplayerPlayers, players, currentTurn, highestBet, pot, hasActed, community, round, dealerIdx, bigBlind]);
 
   const addLog = useCallback((msg, type='normal') => {
     setLog(l => [...l.slice(-60), { msg, type, id: Date.now()+Math.random() }]);
@@ -335,10 +503,14 @@ export default function PokerGame() {
     if (phase !== PHASE.PLAYING) return;
     const p = players[currentTurn];
     if (!p||p.isFolded||p.isCpu===false) return;
+    
+    // In multiplayer, only host runs bot AI
+    if (isMultiplayer && !isHost) return;
+    
     setBotThinking(true);
     const t = setTimeout(doBotAction, 900 + Math.random()*600);
     return () => clearTimeout(t);
-  }, [phase, currentTurn, players, doBotAction]);
+  }, [phase, currentTurn, players, doBotAction, isMultiplayer, isHost]);
 
   function advanceTurn(ps, ct, hb, ha, curPot, comm, rnd, di, bb) {
     const active = ps.filter(p=>!p.isFolded);
@@ -470,22 +642,37 @@ export default function PokerGame() {
     const ps = [...players.map(p=>({...p}))];
     const p = ps[currentTurn];
     if (!p||p.isCpu||p.isFolded) return;
+    
+    // In multiplayer mode, clients send action to host
+    if (isMultiplayer && !isHost && socket && roomCode) {
+      // Only send if it's actually my turn
+      const myPlayer = multiplayerPlayers.find(mp => mp.id === playerId);
+      if (!myPlayer || p.name !== myPlayer.name) return;
+      
+      socket.emit('player-action', { 
+        roomCode, 
+        action: { type, amount } 
+      });
+      return;
+    }
+    
+    // Host or single player: execute action locally
     const callAmt = highestBet - p.currentBet;
     let newPot=pot, newHb=highestBet, newHa={...hasActed};
 
     if (type==='fold') {
       p.isFolded=true;
-      addLog(`${p.name} folds`, 'fold');
+      addLog(`${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'folds' : 'fold'}`, 'fold');
     } else if (type==='raise') {
       const total = Math.min(callAmt+amount, p.chips);
       if (total<=callAmt&&p.chips>callAmt) { addLog('Raise must be > 0','error'); return; }
       p.chips-=total; p.currentBet+=total; newPot+=total; newHb=p.currentBet;
-      addLog(`You raise to Rp ${formatIDR(p.currentBet)}`, 'raise');
+      addLog(`${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'raises' : 'raise'} to Rp ${formatIDR(p.currentBet)}`, 'raise');
       ps.forEach(x=>newHa[x.name]=false);
     } else {
       const actual=Math.min(callAmt,p.chips);
       p.chips-=actual; p.currentBet+=actual; newPot+=actual;
-      addLog(actual===0 ? 'You check' : `You call Rp ${formatIDR(actual)}`, 'call');
+      addLog(actual===0 ? `${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'checks' : 'check'}` : `${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'calls' : 'call'} Rp ${formatIDR(actual)}`, 'call');
     }
     newHa[p.name]=true;
     setRaiseInput('');
@@ -497,9 +684,19 @@ export default function PokerGame() {
   }
 
   // ── DERIVED ───────────────────────────────────────────────────
-  const human = players.find(p=>!p.isCpu);
+  const human = isMultiplayer 
+    ? (() => {
+        const myMpPlayer = multiplayerPlayers.find(mp => mp.id === playerId);
+        return myMpPlayer ? players.find(p => p.name === myMpPlayer.name) : null;
+      })()
+    : players.find(p=>!p.isCpu);
+  
   const callAmt = human ? Math.max(0, highestBet - (human.currentBet||0)) : 0;
-  const isHumanTurn = phase===PHASE.PLAYING && players[currentTurn] && !players[currentTurn].isCpu && !players[currentTurn].isFolded;
+  const isHumanTurn = phase===PHASE.PLAYING && players[currentTurn] && (
+    isMultiplayer 
+      ? human && players[currentTurn].name === human.name
+      : !players[currentTurn].isCpu
+  ) && !players[currentTurn].isFolded;
   const assistHand = assistMode && human && human.holeCards.length===2
     ? (community.length===0
         ? (()=>{ const v1=human.holeCards[0][0],v2=human.holeCards[1][0]; return v1===v2?`Pair of ${v1}s`:`High Card ${CARD_VALUES[v1]>CARD_VALUES[v2]?v1:v2}`; })()
@@ -558,16 +755,26 @@ export default function PokerGame() {
           {gameResult==='win'?'You outlasted all the bots!':'Better luck next time.'}
         </p>
         <button onClick={()=>{setPhase(PHASE.SETUP);setPlayers([]);setLog([]);}}
-          style={{ padding:'14px 40px', background:'linear-gradient(135deg,#c8a84b,#a07030)', border:'none', borderRadius:8, color:'#0a1628', fontFamily:'Georgia,serif', fontSize:16, fontWeight:'bold', cursor:'pointer', letterSpacing:2 }}>
+          style={{ padding:'14px 40px', background:'linear-gradient(135deg,#c8a84b,#a07030)', border:'none', borderRadius:8, color:'#0a1628', fontFamily:'Georgia,serif', fontSize:16, fontWeight:'bold', cursor:'pointer', letterSpacing:2, marginRight: 12 }}>
           Play Again
         </button>
+        {onBackToMenu && (
+          <button onClick={onBackToMenu}
+            style={{ padding:'14px 40px', background:'none', border:'1px solid rgba(180,140,60,0.3)', borderRadius:8, color:'rgba(200,168,75,0.6)', fontFamily:'Georgia,serif', fontSize:16, cursor:'pointer' }}>
+            Main Menu
+          </button>
+        )}
       </div>
     </div>
   );
 
   // ── MAIN GAME ─────────────────────────────────────────────────
   const activePlayers = players.filter(p=>!p.isFolded);
-  const bots = players.filter(p=>p.isCpu);
+  
+  // In single player: show bots. In multiplayer: show other players (not me)
+  const otherPlayers = isMultiplayer
+    ? players.filter(p => human && p.name !== human.name)
+    : players.filter(p => p.isCpu);
 
   return (
     <div style={{ minHeight:'100vh', background:'#071020', fontFamily:'Georgia,serif', display:'flex', flexDirection:'column' }}>
@@ -582,28 +789,32 @@ export default function PokerGame() {
           <span style={{ color:'rgba(200,168,75,0.7)', fontSize:13 }}>{round}</span>
           <span style={{ color:'#e8d5a0', fontSize:13 }}>Pot: <strong style={{color:'#c8a84b'}}>Rp {formatIDR(pot)}</strong></span>
         </div>
-        <button onClick={()=>setPhase(PHASE.SETUP)} style={{ background:'none', border:'1px solid rgba(180,140,60,0.3)', color:'rgba(200,168,75,0.6)', padding:'4px 12px', borderRadius:6, cursor:'pointer', fontSize:12 }}>Menu</button>
+        <button onClick={()=>onBackToMenu ? onBackToMenu() : setPhase(PHASE.SETUP)} style={{ background:'none', border:'1px solid rgba(180,140,60,0.3)', color:'rgba(200,168,75,0.6)', padding:'4px 12px', borderRadius:6, cursor:'pointer', fontSize:12 }}>Menu</button>
       </div>
 
       <div style={{ flex:1, display:'flex', flexDirection:'column', maxWidth:900, margin:'0 auto', width:'100%', padding:'16px', gap:12, boxSizing:'border-box' }}>
-        {/* Bots */}
+        {/* Other Players (Bots in single player, other humans in multiplayer) */}
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'center' }}>
-          {bots.map((bot,i)=>{
-            const isThinking = botThinking && currentTurn===players.indexOf(bot);
+          {otherPlayers.map((player,i)=>{
+            const isThinking = botThinking && currentTurn===players.indexOf(player);
+            const isCpu = player.isCpu || false;
             return (
-              <div key={bot.name} style={{ background:'rgba(255,255,255,0.04)', border:`1px solid ${bot.isFolded?'rgba(100,100,100,0.2)':'rgba(180,140,60,0.2)'}`, borderRadius:10, padding:'10px 14px', minWidth:130, opacity:bot.isFolded?0.4:1, position:'relative' }}>
+              <div key={player.name} style={{ background:'rgba(255,255,255,0.04)', border:`1px solid ${player.isFolded?'rgba(100,100,100,0.2)':'rgba(180,140,60,0.2)'}`, borderRadius:10, padding:'10px 14px', minWidth:130, opacity:player.isFolded?0.4:1, position:'relative' }}>
                 {isThinking && <div style={{ position:'absolute',top:4,right:6,width:8,height:8,borderRadius:'50%',background:'#c8a84b',animation:'pulse 0.8s infinite' }}/>}
-                {showBotProfiles && <div style={{ color:'rgba(200,168,75,0.8)', fontSize:11, marginBottom:4, textTransform:'uppercase', letterSpacing:1 }}>{bot.profile}</div>}
-                <div style={{ color:'#e8d5a0', fontSize:13, fontWeight:'bold', marginBottom:6 }}>{bot.name.replace(/Bot_\d+\s?/,'Bot '+(i+1))}</div>
+                {showBotProfiles && isCpu && <div style={{ color:'rgba(200,168,75,0.8)', fontSize:11, marginBottom:4, textTransform:'uppercase', letterSpacing:1 }}>{player.profile}</div>}
+                <div style={{ color:'#e8d5a0', fontSize:13, fontWeight:'bold', marginBottom:6 }}>
+                  {isCpu ? player.name.replace(/Bot_\d+\s?/,'Bot '+(i+1)) : player.name}
+                  {isMultiplayer && !isCpu && <span style={{ marginLeft:6, fontSize:10, color:'#3498db' }}>👤</span>}
+                </div>
                 <div style={{ display:'flex', gap:4, marginBottom:6 }}>
-                  {bot.holeCards.length>0
-                    ? bot.holeCards.map((c,j)=><CardFace key={j} card={c} hidden={!showdown} small/>)
+                  {player.holeCards.length>0
+                    ? player.holeCards.map((c,j)=><CardFace key={j} card={c} hidden={!showdown} small/>)
                     : [0,1].map(j=><EmptyCard key={j} small/>)}
                 </div>
-                <div style={{ color:'#c8a84b', fontSize:12 }}>💰 Rp {formatIDR(bot.chips)}</div>
-                {bot.currentBet>0&&<div style={{ color:'rgba(200,168,75,0.6)', fontSize:11 }}>Bet: Rp {formatIDR(bot.currentBet)}</div>}
-                {bot.isFolded&&<div style={{ color:'#e74c3c', fontSize:11 }}>FOLDED</div>}
-                {players[currentTurn]?.name===bot.name&&!bot.isFolded&&<div style={{ color:'#c8a84b', fontSize:10, marginTop:2 }}>◀ ACTING</div>}
+                <div style={{ color:'#c8a84b', fontSize:12 }}>💰 Rp {formatIDR(player.chips)}</div>
+                {player.currentBet>0&&<div style={{ color:'rgba(200,168,75,0.6)', fontSize:11 }}>Bet: Rp {formatIDR(player.currentBet)}</div>}
+                {player.isFolded&&<div style={{ color:'#e74c3c', fontSize:11 }}>FOLDED</div>}
+                {players[currentTurn]?.name===player.name&&!player.isFolded&&<div style={{ color:'#c8a84b', fontSize:10, marginTop:2 }}>◀ ACTING</div>}
               </div>
             );
           })}
