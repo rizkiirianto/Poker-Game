@@ -147,7 +147,7 @@ const ROUND = { PRE_FLOP:'Pre-Flop', FLOP:'Flop', TURN:'Turn', RIVER:'River' };
 
 function makePlayer(name, chips, isCpu=false, profile=null) {
   return { name, chips, isCpu, profile: profile || (isCpu?BOT_PROFILES[Math.floor(Math.random()*BOT_PROFILES.length)]:'Human'),
-    holeCards:[], currentBet:0, isFolded:false, isEliminated:false };
+    holeCards:[], currentBet:0, totalContribution:0, isFolded:false, isEliminated:false };
 }
 
 // ─── MAIN COMPONENT ────────────────────────────────────────────
@@ -426,7 +426,7 @@ export default function PokerGame({
     let deckCopy = [...newDeck];
 
     // Reset players
-    const reset = alive.map(p => ({...p, holeCards:[], currentBet:0, isFolded:false}));
+    const reset = alive.map(p => ({...p, holeCards:[], currentBet:0, totalContribution:0, isFolded:false}));
 
     // Deal hole cards
     for (let i=0;i<2;i++) reset.forEach(p=>{ p.holeCards.push(deckCopy.pop()); });
@@ -436,8 +436,8 @@ export default function PokerGame({
     const bbIdx = (dIdx+2) % reset.length;
     const sbAmt = Math.min(sb, reset[sbIdx].chips);
     const bbAmt = Math.min(bb, reset[bbIdx].chips);
-    reset[sbIdx].chips -= sbAmt; reset[sbIdx].currentBet = sbAmt;
-    reset[bbIdx].chips -= bbAmt; reset[bbIdx].currentBet = bbAmt;
+    reset[sbIdx].chips -= sbAmt; reset[sbIdx].currentBet = sbAmt; reset[sbIdx].totalContribution = sbAmt;
+    reset[bbIdx].chips -= bbAmt; reset[bbIdx].currentBet = bbAmt; reset[bbIdx].totalContribution = bbAmt;
     const newPot = sbAmt + bbAmt;
     const newHighest = bb;
 
@@ -479,12 +479,12 @@ export default function PokerGame({
       addLog(`${np.name} folds`, 'fold');
     } else if (action.type==='raise') {
       const total = Math.min(callAmt + action.amount, np.chips);
-      np.chips -= total; np.currentBet += total; newPot += total; newHb = np.currentBet;
+      np.chips -= total; np.currentBet += total; np.totalContribution += total; newPot += total; newHb = np.currentBet;
       addLog(`${np.name} raises to Rp ${formatIDR(np.currentBet)}`, 'raise');
       newPs.forEach(x=>{ newHa[x.name]=false; });
     } else {
       const actual = Math.min(callAmt, np.chips);
-      np.chips -= actual; np.currentBet += actual; newPot += actual;
+      np.chips -= actual; np.currentBet += actual; np.totalContribution += actual; newPot += actual;
       addLog(actual===0 ? `${np.name} checks` : `${np.name} calls Rp ${formatIDR(actual)}`, 'call');
     }
     newHa[np.name] = true;
@@ -590,27 +590,108 @@ export default function PokerGame({
     setCurrentTurn(idx);
   }
 
+  // Calculate side pots based on player contributions
+  function calculateSidePots(ps) {
+    // Get all players who contributed (folded or not)
+    const contributors = ps.filter(p => p.totalContribution > 0);
+    if (contributors.length === 0) return [];
+    
+    // Sort by contribution amount
+    const sortedAmounts = [...new Set(contributors.map(p => p.totalContribution))].sort((a,b) => a - b);
+    
+    const pots = [];
+    let prevAmount = 0;
+    
+    for (const amount of sortedAmounts) {
+      const potContribution = amount - prevAmount;
+      let potTotal = 0;
+      const eligiblePlayers = [];
+      
+      // Calculate pot total and find eligible players
+      for (const p of ps) {
+        if (p.totalContribution >= amount) {
+          potTotal += potContribution;
+          if (!p.isFolded) {
+            eligiblePlayers.push(p);
+          }
+        }
+      }
+      
+      if (potTotal > 0 && eligiblePlayers.length > 0) {
+        pots.push({
+          amount: potTotal,
+          eligiblePlayers: eligiblePlayers.map(p => p.name),
+          isSide: pots.length > 0
+        });
+      }
+      
+      prevAmount = amount;
+    }
+    
+    return pots;
+  }
+
   function doShowdown(ps, comm, curPot, di, bb) {
     const active = ps.filter(p=>!p.isFolded);
-    let bestScore = [-1,[]];
-    let winners = [];
+    
+    // Calculate all hands
     const results = active.map(p => {
       const score = getBestHand(comm, p.holeCards);
-      if (compareSrc(score, bestScore)>0) { bestScore=score; winners=[p]; }
-      else if (compareSrc(score,bestScore)===0) winners.push(p);
       return { player:p, score, handStr:handName(score) };
     });
-
-    const winAmt = Math.floor(curPot / winners.length);
-    const newPs = ps.map(p => {
-      if (winners.find(w=>w.name===p.name)) return {...p, chips:p.chips+winAmt};
-      return {...p};
+    
+    // Calculate side pots
+    const sidePots = calculateSidePots(ps);
+    
+    // Distribute each pot to its winners
+    const newPs = ps.map(p => ({...p}));
+    const allWinners = [];
+    
+    addLog(`━━━ SHOWDOWN ━━━`, 'round');
+    
+    for (let i = 0; i < sidePots.length; i++) {
+      const sidePot = sidePots[i];
+      const eligible = results.filter(r => sidePot.eligiblePlayers.includes(r.player.name));
+      
+      if (eligible.length === 0) continue;
+      
+      // Find best hand among eligible players
+      let bestScore = [-1,[]];
+      let potWinners = [];
+      
+      for (const result of eligible) {
+        if (compareSrc(result.score, bestScore) > 0) {
+          bestScore = result.score;
+          potWinners = [result.player];
+        } else if (compareSrc(result.score, bestScore) === 0) {
+          potWinners.push(result.player);
+        }
+      }
+      
+      // Distribute pot among winners
+      const winAmt = Math.floor(sidePot.amount / potWinners.length);
+      potWinners.forEach(w => {
+        const idx = newPs.findIndex(p => p.name === w.name);
+        if (idx !== -1) newPs[idx].chips += winAmt;
+        
+        if (!allWinners.find(winner => winner.name === w.name)) {
+          allWinners.push({ name: w.name, amount: winAmt, hand: handName(bestScore), potType: sidePot.isSide ? 'side' : 'main' });
+        } else {
+          const existing = allWinners.find(winner => winner.name === w.name);
+          existing.amount += winAmt;
+        }
+      });
+      
+      const potLabel = sidePot.isSide ? `Side Pot ${i}` : 'Main Pot';
+      const winnersStr = potWinners.map(w => w.name).join(' & ');
+      addLog(`${potLabel} (Rp ${formatIDR(sidePot.amount)}): ${winnersStr} wins with ${handName(bestScore)}`, 'win');
+    }
+    
+    allWinners.forEach(w => {
+      addLog(`🏆 ${w.name} wins Rp ${formatIDR(w.amount)} total!`, 'win');
     });
 
-    addLog(`━━━ SHOWDOWN ━━━ ${handName(bestScore)}`, 'round');
-    winners.forEach(w => addLog(`🏆 ${w.name} wins Rp ${formatIDR(winAmt)} chips!`, 'win'));
-
-    setShowdown({ results, winners, bestHand: handName(bestScore) });
+    setShowdown({ results, winners: allWinners.map(w => newPs.find(p => p.name === w.name)), bestHand: allWinners[0]?.hand || '' });
     setPot(0);
     setPlayers(newPs);
     setPhase(PHASE.SHOWDOWN);
@@ -666,12 +747,12 @@ export default function PokerGame({
     } else if (type==='raise') {
       const total = Math.min(callAmt+amount, p.chips);
       if (total<=callAmt&&p.chips>callAmt) { addLog('Raise must be > 0','error'); return; }
-      p.chips-=total; p.currentBet+=total; newPot+=total; newHb=p.currentBet;
+      p.chips-=total; p.currentBet+=total; p.totalContribution+=total; newPot+=total; newHb=p.currentBet;
       addLog(`${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'raises' : 'raise'} to Rp ${formatIDR(p.currentBet)}`, 'raise');
       ps.forEach(x=>newHa[x.name]=false);
     } else {
       const actual=Math.min(callAmt,p.chips);
-      p.chips-=actual; p.currentBet+=actual; newPot+=actual;
+      p.chips-=actual; p.currentBet+=actual; p.totalContribution+=actual; newPot+=actual;
       addLog(actual===0 ? `${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'checks' : 'check'}` : `${isMultiplayer ? p.name : 'You'} ${isMultiplayer ? 'calls' : 'call'} Rp ${formatIDR(actual)}`, 'call');
     }
     newHa[p.name]=true;
