@@ -20,11 +20,3 @@ A browser-based Texas Hold'em poker game built with React. Play against AI bots 
 * **Vite** (Build tool)
 * **Tailwind CSS v3** (Styling and layout)
 * **GitHub Pages** (Hosting)
-
-## 🚀 How to Run Locally
-
-If you want to clone this repository and run it on your own machine:
-
-1. **Clone the repo:**
-   ```bash
-   git clone [https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git](https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git)
