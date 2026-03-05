@@ -153,7 +153,7 @@ function makePlayer(name, chips, isCpu=false, profile=null) {
 // ─── MAIN COMPONENT ────────────────────────────────────────────
 export default function PokerGame() {
   const [phase, setPhase] = useState(PHASE.SETUP);
-  const [setupForm, setSetupForm] = useState({ name:'', chips:'1000', smallBlind:'10', numBots:'2', assist:'true', showProfiles:'true' });
+  const [setupForm, setSetupForm] = useState({ name:'', chips:'1000', smallBlind:'10', numBots:'2', assist:'true', showProfiles:'true', blindMultiplier:'2', blindInterval:'10' });
   const [players, setPlayers] = useState([]);
   const [deck, setDeck] = useState([]);
   const [community, setCommunity] = useState([]);
@@ -172,6 +172,11 @@ export default function PokerGame() {
   const [showdown, setShowdown] = useState(null);
   const [gameResult, setGameResult] = useState('');
   const [botThinking, setBotThinking] = useState(false);
+  const [blindMultiplier, setBlindMultiplier] = useState(2);
+  const [blindIntervalMinutes, setBlindIntervalMinutes] = useState(10);
+  const [gameStartTime, setGameStartTime] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [blindLevel, setBlindLevel] = useState(1);
   const logRef = useRef(null);
   const gameStateRef = useRef({});
 
@@ -183,6 +188,35 @@ export default function PokerGame() {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [log]);
 
+  // Game timer for blind escalation
+  useEffect(() => {
+    if (phase !== PHASE.PLAYING && phase !== PHASE.WAITING) return;
+    if (!gameStartTime) return;
+    
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+      setElapsedSeconds(elapsed);
+      
+      // Check if blinds should increase
+      const intervalSeconds = blindIntervalMinutes * 60;
+      const newLevel = Math.floor(elapsed / intervalSeconds) + 1;
+      
+      if (newLevel > blindLevel) {
+        const multiplier = Math.pow(blindMultiplier, newLevel - 1);
+        const baseSB = parseInt(setupForm.smallBlind) || 10;
+        const newSB = Math.round(baseSB * multiplier);
+        const newBB = newSB * 2;
+        
+        setSmallBlind(newSB);
+        setBigBlind(newBB);
+        setBlindLevel(newLevel);
+        addLog(`🔔 Blinds increased to ${newSB}/${newBB}!`, 'round');
+      }
+    }, 1000);
+    
+    return () => clearInterval(timer);
+  }, [phase, gameStartTime, elapsedSeconds, blindLevel, blindIntervalMinutes, blindMultiplier, setupForm.smallBlind, addLog]);
+
   // Store mutable state for bot callbacks
   useEffect(() => {
     gameStateRef.current = { players, deck, community, pot, highestBet, dealerIdx, round, currentTurn, hasActed, smallBlind, bigBlind };
@@ -190,9 +224,11 @@ export default function PokerGame() {
 
   // ── GAME INIT ─────────────────────────────────────────────────
   function startGame() {
-    const { name, chips, smallBlind: sb, numBots, assist, showProfiles } = setupForm;
+    const { name, chips, smallBlind: sb, numBots, assist, showProfiles, blindMultiplier: bm, blindInterval: bi } = setupForm;
     if (!name.trim()) return;
     const sc = parseInt(chips)||1000, sbl = parseInt(sb)||10, nb = Math.min(5,Math.max(1,parseInt(numBots)||2));
+    const bmVal = parseFloat(bm) || 2;
+    const biVal = parseInt(bi) || 10;
     const ps = [makePlayer(name.trim(), sc, false)];
     for (let i=0;i<nb;i++) ps.push(makePlayer(`Bot_${i+1}`,sc,true));
     setPlayers(ps);
@@ -200,6 +236,11 @@ export default function PokerGame() {
     setBigBlind(sbl*2);
     setAssistMode(assist==='true');
     setShowBotProfiles(showProfiles==='true');
+    setBlindMultiplier(bmVal);
+    setBlindIntervalMinutes(biVal);
+    setGameStartTime(Date.now());
+    setElapsedSeconds(0);
+    setBlindLevel(1);
     setDealerIdx(0);
     setLog([]);
     startHand(ps, 0, sbl, sbl*2);
@@ -469,7 +510,7 @@ export default function PokerGame() {
           <h1 style={{ color:'#c8a84b', fontFamily:'Georgia,serif', fontSize:28, margin:'8px 0 4px', letterSpacing:2 }}>POKER</h1>
           <p style={{ color:'rgba(200,168,75,0.6)', fontSize:12, letterSpacing:4, textTransform:'uppercase' }}>Texas Hold'em</p>
         </div>
-        {[['Your Name','name','text','Maverick'],['Starting Chips','chips','number','1000'],['Small Blind','smallBlind','number','10'],['# of Bots (1-5)','numBots','number','2']].map(([label,key,type,ph])=>(
+        {[['Your Name','name','text','Maverick'],['Starting Chips','chips','number','1000'],['Small Blind','smallBlind','number','10'],['# of Bots (1-5)','numBots','number','2'],['Blind Multiplier','blindMultiplier','number','2'],['Blind Interval (min)','blindInterval','number','10']].map(([label,key,type,ph])=>(
           <div key={key} style={{ marginBottom:16 }}>
             <label style={{ color:'rgba(200,168,75,0.8)', fontSize:12, letterSpacing:1, display:'block', marginBottom:6, textTransform:'uppercase' }}>{label}</label>
             <input type={type} value={setupForm[key]} min={key==='numBots'?1:undefined} max={key==='numBots'?5:undefined}
@@ -528,7 +569,11 @@ export default function PokerGame() {
       {/* Header */}
       <div style={{ background:'rgba(0,0,0,0.4)', borderBottom:'1px solid rgba(180,140,60,0.2)', padding:'10px 20px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
         <span style={{ color:'#c8a84b', fontWeight:'bold', fontSize:18, letterSpacing:2 }}>♠ POKER ♣</span>
-        <div style={{ display:'flex', gap:20 }}>
+        <div style={{ display:'flex', gap:20, alignItems:'center' }}>
+          <div style={{ color:'rgba(200,168,75,0.7)', fontSize:12 }}>
+            <div>⏱️ {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')}</div>
+            <div style={{ fontSize:10, opacity:0.7 }}>Level {blindLevel} · {smallBlind}/{bigBlind}</div>
+          </div>
           <span style={{ color:'rgba(200,168,75,0.7)', fontSize:13 }}>{round}</span>
           <span style={{ color:'#e8d5a0', fontSize:13 }}>Pot: <strong style={{color:'#c8a84b'}}>{pot}</strong></span>
         </div>
