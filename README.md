@@ -1,16 +1,30 @@
-# React + Vite
+# 🃏 React Single Player Poker
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser-based Texas Hold'em poker game built with React. Play against AI bots with unique personalities and playstyles directly in your browser. 
 
-Currently, two official plugins are available:
+👉 **[Play the Live Demo Here](https://YOUR_GITHUB_USERNAME.github.io/YOUR_REPO_NAME/)**
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## ✨ Features
+* **Full Texas Hold'em Engine:** Complete round progression (Pre-Flop, Flop, Turn, River, Showdown).
+* **Hand Evaluation:** Automatically calculates the best 5-card hand from hole and community cards.
+* **AI Opponents:** Play against up to 5 bots, each assigned a random profile:
+  * *Aggressive:* Bets big and bluffs often.
+  * *Conservative:* Only plays strong hands.
+  * *Calling Station:* Rarely folds, loves to see the next card.
+  * *Balanced:* Mixes up playstyles dynamically.
+* **Assist Mode:** Optional toggle that tells you the current strength of your hand.
+* **Responsive UI:** Clean, modern interface styled with Tailwind CSS.
 
-## React Compiler
+## 🛠️ Technologies Used
+* **React.js** (Hooks, state management)
+* **Vite** (Build tool)
+* **Tailwind CSS v3** (Styling and layout)
+* **GitHub Pages** (Hosting)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🚀 How to Run Locally
 
-## Expanding the ESLint configuration
+If you want to clone this repository and run it on your own machine:
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+1. **Clone the repo:**
+   ```bash
+   git clone [https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git](https://github.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME.git)
