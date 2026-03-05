@@ -2,7 +2,7 @@
 
 A browser-based Texas Hold'em poker game built with React. Play against AI bots with unique personalities and playstyles directly in your browser. 
 
-👉 **[Play the Live Demo Here](https://YOUR_GITHUB_USERNAME.github.io/YOUR_REPO_NAME/)**
+👉 **[Play the Live Demo Here](https://rizkiirianto.github.io/Poker-Game/)**
 
 ## ✨ Features
 * **Full Texas Hold'em Engine:** Complete round progression (Pre-Flop, Flop, Turn, River, Showdown).
