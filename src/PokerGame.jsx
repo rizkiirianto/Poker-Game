@@ -153,7 +153,7 @@ function makePlayer(name, chips, isCpu=false, profile=null) {
 // ─── MAIN COMPONENT ────────────────────────────────────────────
 export default function PokerGame() {
   const [phase, setPhase] = useState(PHASE.SETUP);
-  const [setupForm, setSetupForm] = useState({ name:'', chips:'1000', smallBlind:'10', numBots:'2', assist:'true' });
+  const [setupForm, setSetupForm] = useState({ name:'', chips:'1000', smallBlind:'10', numBots:'2', assist:'true', showProfiles:'true' });
   const [players, setPlayers] = useState([]);
   const [deck, setDeck] = useState([]);
   const [community, setCommunity] = useState([]);
@@ -163,6 +163,7 @@ export default function PokerGame() {
   const [smallBlind, setSmallBlind] = useState(10);
   const [bigBlind, setBigBlind] = useState(20);
   const [assistMode, setAssistMode] = useState(true);
+  const [showBotProfiles, setShowBotProfiles] = useState(true);
   const [round, setRound] = useState(ROUND.PRE_FLOP);
   const [currentTurn, setCurrentTurn] = useState(0);
   const [hasActed, setHasActed] = useState({});
@@ -189,7 +190,7 @@ export default function PokerGame() {
 
   // ── GAME INIT ─────────────────────────────────────────────────
   function startGame() {
-    const { name, chips, smallBlind: sb, numBots, assist } = setupForm;
+    const { name, chips, smallBlind: sb, numBots, assist, showProfiles } = setupForm;
     if (!name.trim()) return;
     const sc = parseInt(chips)||1000, sbl = parseInt(sb)||10, nb = Math.min(5,Math.max(1,parseInt(numBots)||2));
     const ps = [makePlayer(name.trim(), sc, false)];
@@ -198,6 +199,7 @@ export default function PokerGame() {
     setSmallBlind(sbl);
     setBigBlind(sbl*2);
     setAssistMode(assist==='true');
+    setShowBotProfiles(showProfiles==='true');
     setDealerIdx(0);
     setLog([]);
     startHand(ps, 0, sbl, sbl*2);
@@ -476,11 +478,18 @@ export default function PokerGame() {
               style={{ width:'100%', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(180,140,60,0.3)', borderRadius:8, padding:'10px 14px', color:'#e8d5a0', fontSize:15, outline:'none', boxSizing:'border-box' }}/>
           </div>
         ))}
-        <div style={{ marginBottom:24, display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ marginBottom:16, display:'flex', alignItems:'center', gap:10 }}>
           <label style={{ color:'rgba(200,168,75,0.8)', fontSize:12, letterSpacing:1, textTransform:'uppercase' }}>Assist Mode</label>
           <div onClick={()=>setSetupForm(f=>({...f,assist:f.assist==='true'?'false':'true'}))}
             style={{ width:44,height:24,borderRadius:12,background:setupForm.assist==='true'?'#c8a84b':'rgba(255,255,255,0.1)',cursor:'pointer',position:'relative',transition:'background 0.2s' }}>
             <div style={{ position:'absolute',top:2,left:setupForm.assist==='true'?22:2,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left 0.2s' }}/>
+          </div>
+        </div>
+        <div style={{ marginBottom:24, display:'flex', alignItems:'center', gap:10 }}>
+          <label style={{ color:'rgba(200,168,75,0.8)', fontSize:12, letterSpacing:1, textTransform:'uppercase' }}>Show Bot Types</label>
+          <div onClick={()=>setSetupForm(f=>({...f,showProfiles:f.showProfiles==='true'?'false':'true'}))}
+            style={{ width:44,height:24,borderRadius:12,background:setupForm.showProfiles==='true'?'#c8a84b':'rgba(255,255,255,0.1)',cursor:'pointer',position:'relative',transition:'background 0.2s' }}>
+            <div style={{ position:'absolute',top:2,left:setupForm.showProfiles==='true'?22:2,width:20,height:20,borderRadius:'50%',background:'#fff',transition:'left 0.2s' }}/>
           </div>
         </div>
         <button onClick={startGame}
@@ -534,7 +543,7 @@ export default function PokerGame() {
             return (
               <div key={bot.name} style={{ background:'rgba(255,255,255,0.04)', border:`1px solid ${bot.isFolded?'rgba(100,100,100,0.2)':'rgba(180,140,60,0.2)'}`, borderRadius:10, padding:'10px 14px', minWidth:130, opacity:bot.isFolded?0.4:1, position:'relative' }}>
                 {isThinking && <div style={{ position:'absolute',top:4,right:6,width:8,height:8,borderRadius:'50%',background:'#c8a84b',animation:'pulse 0.8s infinite' }}/>}
-                <div style={{ color:'rgba(200,168,75,0.8)', fontSize:11, marginBottom:4, textTransform:'uppercase', letterSpacing:1 }}>{bot.profile}</div>
+                {showBotProfiles && <div style={{ color:'rgba(200,168,75,0.8)', fontSize:11, marginBottom:4, textTransform:'uppercase', letterSpacing:1 }}>{bot.profile}</div>}
                 <div style={{ color:'#e8d5a0', fontSize:13, fontWeight:'bold', marginBottom:6 }}>{bot.name.replace(/Bot_\d+\s?/,'Bot '+(i+1))}</div>
                 <div style={{ display:'flex', gap:4, marginBottom:6 }}>
                   {bot.holeCards.length>0
