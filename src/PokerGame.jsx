@@ -153,7 +153,7 @@ function makePlayer(name, chips, isCpu=false, profile=null) {
 // ─── MAIN COMPONENT ────────────────────────────────────────────
 export default function PokerGame() {
   const [phase, setPhase] = useState(PHASE.SETUP);
-  const [setupForm, setSetupForm] = useState({ name:'', chips:'1000', smallBlind:'10', numBots:'2', assist:'true', showProfiles:'true', blindMultiplier:'2', blindInterval:'10' });
+  const [setupForm, setSetupForm] = useState({ name:'', chips:'1000000', smallBlind:'10000', numBots:'2', assist:'true', showProfiles:'true', blindMultiplier:'2', blindInterval:'10' });
   const [players, setPlayers] = useState([]);
   const [deck, setDeck] = useState([]);
   const [community, setCommunity] = useState([]);
@@ -184,6 +184,11 @@ export default function PokerGame() {
     setLog(l => [...l.slice(-60), { msg, type, id: Date.now()+Math.random() }]);
   }, []);
 
+  // Format numbers with thousand separators for IDR
+  const formatIDR = (num) => {
+    return new Intl.NumberFormat('id-ID').format(num);
+  };
+
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [log]);
@@ -210,7 +215,7 @@ export default function PokerGame() {
         setSmallBlind(newSB);
         setBigBlind(newBB);
         setBlindLevel(newLevel);
-        addLog(`🔔 Blinds increased to ${newSB}/${newBB}!`, 'round');
+        addLog(`🔔 Blinds increased to Rp ${formatIDR(newSB)}/Rp ${formatIDR(newBB)}!`, 'round');
       }
     }, 1000);
     
@@ -226,7 +231,7 @@ export default function PokerGame() {
   function startGame() {
     const { name, chips, smallBlind: sb, numBots, assist, showProfiles, blindMultiplier: bm, blindInterval: bi } = setupForm;
     if (!name.trim()) return;
-    const sc = parseInt(chips)||1000, sbl = parseInt(sb)||10, nb = Math.min(5,Math.max(1,parseInt(numBots)||2));
+    const sc = parseInt(chips)||1000000, sbl = parseInt(sb)||10000, nb = Math.min(5,Math.max(1,parseInt(numBots)||2));
     const bmVal = parseFloat(bm) || 2;
     const biVal = parseInt(bi) || 10;
     const ps = [makePlayer(name.trim(), sc, false)];
@@ -286,7 +291,7 @@ export default function PokerGame() {
     setPhase(PHASE.PLAYING);
 
     addLog(`━━━ NEW HAND ━━━ Dealer: ${reset[dIdx].name}`, 'round');
-    addLog(`${reset[sbIdx].name} posts SB ${sbAmt} | ${reset[bbIdx].name} posts BB ${bbAmt}`, 'blind');
+    addLog(`${reset[sbIdx].name} posts SB Rp ${formatIDR(sbAmt)} | ${reset[bbIdx].name} posts BB Rp ${formatIDR(bbAmt)}`, 'blind');
   }
 
   // ── BOT ACTION ────────────────────────────────────────────────
@@ -307,12 +312,12 @@ export default function PokerGame() {
     } else if (action.type==='raise') {
       const total = Math.min(callAmt + action.amount, np.chips);
       np.chips -= total; np.currentBet += total; newPot += total; newHb = np.currentBet;
-      addLog(`${np.name} raises to ${np.currentBet}`, 'raise');
+      addLog(`${np.name} raises to Rp ${formatIDR(np.currentBet)}`, 'raise');
       newPs.forEach(x=>{ newHa[x.name]=false; });
     } else {
       const actual = Math.min(callAmt, np.chips);
       np.chips -= actual; np.currentBet += actual; newPot += actual;
-      addLog(actual===0 ? `${np.name} checks` : `${np.name} calls ${actual}`, 'call');
+      addLog(actual===0 ? `${np.name} checks` : `${np.name} calls Rp ${formatIDR(actual)}`, 'call');
     }
     newHa[np.name] = true;
 
@@ -342,7 +347,7 @@ export default function PokerGame() {
     if (active.length===1) {
       const winner = active[0];
       const newPs = ps.map(p=> p.name===winner.name ? {...p, chips:p.chips+curPot} : p);
-      addLog(`${winner.name} wins ${curPot} chips! (all others folded)`, 'win');
+      addLog(`${winner.name} wins Rp ${formatIDR(curPot)} chips! (all others folded)`, 'win');
       setPot(0);
       setPlayers(newPs);
       endHand(newPs, di, bb/2);
@@ -431,7 +436,7 @@ export default function PokerGame() {
     });
 
     addLog(`━━━ SHOWDOWN ━━━ ${handName(bestScore)}`, 'round');
-    winners.forEach(w => addLog(`🏆 ${w.name} wins ${winAmt} chips!`, 'win'));
+    winners.forEach(w => addLog(`🏆 ${w.name} wins Rp ${formatIDR(winAmt)} chips!`, 'win'));
 
     setShowdown({ results, winners, bestHand: handName(bestScore) });
     setPot(0);
@@ -475,12 +480,12 @@ export default function PokerGame() {
       const total = Math.min(callAmt+amount, p.chips);
       if (total<=callAmt&&p.chips>callAmt) { addLog('Raise must be > 0','error'); return; }
       p.chips-=total; p.currentBet+=total; newPot+=total; newHb=p.currentBet;
-      addLog(`You raise to ${p.currentBet}`, 'raise');
+      addLog(`You raise to Rp ${formatIDR(p.currentBet)}`, 'raise');
       ps.forEach(x=>newHa[x.name]=false);
     } else {
       const actual=Math.min(callAmt,p.chips);
       p.chips-=actual; p.currentBet+=actual; newPot+=actual;
-      addLog(actual===0 ? 'You check' : `You call ${actual}`, 'call');
+      addLog(actual===0 ? 'You check' : `You call Rp ${formatIDR(actual)}`, 'call');
     }
     newHa[p.name]=true;
     setRaiseInput('');
@@ -510,7 +515,7 @@ export default function PokerGame() {
           <h1 style={{ color:'#c8a84b', fontFamily:'Georgia,serif', fontSize:28, margin:'8px 0 4px', letterSpacing:2 }}>POKER</h1>
           <p style={{ color:'rgba(200,168,75,0.6)', fontSize:12, letterSpacing:4, textTransform:'uppercase' }}>Texas Hold'em</p>
         </div>
-        {[['Your Name','name','text','Maverick'],['Starting Chips','chips','number','1000'],['Small Blind','smallBlind','number','10'],['# of Bots (1-5)','numBots','number','2'],['Blind Multiplier','blindMultiplier','number','2'],['Blind Interval (min)','blindInterval','number','10']].map(([label,key,type,ph])=>(
+        {[['Your Name','name','text','Maverick'],['Starting Chips (IDR)','chips','number','1000000'],['Small Blind (IDR)','smallBlind','number','10000'],['# of Bots (1-5)','numBots','number','2'],['Blind Multiplier','blindMultiplier','number','2'],['Blind Interval (min)','blindInterval','number','10']].map(([label,key,type,ph])=>(
           <div key={key} style={{ marginBottom:16 }}>
             <label style={{ color:'rgba(200,168,75,0.8)', fontSize:12, letterSpacing:1, display:'block', marginBottom:6, textTransform:'uppercase' }}>{label}</label>
             <input type={type} value={setupForm[key]} min={key==='numBots'?1:undefined} max={key==='numBots'?5:undefined}
@@ -572,10 +577,10 @@ export default function PokerGame() {
         <div style={{ display:'flex', gap:20, alignItems:'center' }}>
           <div style={{ color:'rgba(200,168,75,0.7)', fontSize:12 }}>
             <div>⏱️ {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')}</div>
-            <div style={{ fontSize:10, opacity:0.7 }}>Level {blindLevel} · {smallBlind}/{bigBlind}</div>
+            <div style={{ fontSize:10, opacity:0.7 }}>Level {blindLevel} · Rp {formatIDR(smallBlind)}/{formatIDR(bigBlind)}</div>
           </div>
           <span style={{ color:'rgba(200,168,75,0.7)', fontSize:13 }}>{round}</span>
-          <span style={{ color:'#e8d5a0', fontSize:13 }}>Pot: <strong style={{color:'#c8a84b'}}>{pot}</strong></span>
+          <span style={{ color:'#e8d5a0', fontSize:13 }}>Pot: <strong style={{color:'#c8a84b'}}>Rp {formatIDR(pot)}</strong></span>
         </div>
         <button onClick={()=>setPhase(PHASE.SETUP)} style={{ background:'none', border:'1px solid rgba(180,140,60,0.3)', color:'rgba(200,168,75,0.6)', padding:'4px 12px', borderRadius:6, cursor:'pointer', fontSize:12 }}>Menu</button>
       </div>
@@ -595,8 +600,8 @@ export default function PokerGame() {
                     ? bot.holeCards.map((c,j)=><CardFace key={j} card={c} hidden={!showdown} small/>)
                     : [0,1].map(j=><EmptyCard key={j} small/>)}
                 </div>
-                <div style={{ color:'#c8a84b', fontSize:12 }}>💰 {bot.chips}</div>
-                {bot.currentBet>0&&<div style={{ color:'rgba(200,168,75,0.6)', fontSize:11 }}>Bet: {bot.currentBet}</div>}
+                <div style={{ color:'#c8a84b', fontSize:12 }}>💰 Rp {formatIDR(bot.chips)}</div>
+                {bot.currentBet>0&&<div style={{ color:'rgba(200,168,75,0.6)', fontSize:11 }}>Bet: Rp {formatIDR(bot.currentBet)}</div>}
                 {bot.isFolded&&<div style={{ color:'#e74c3c', fontSize:11 }}>FOLDED</div>}
                 {players[currentTurn]?.name===bot.name&&!bot.isFolded&&<div style={{ color:'#c8a84b', fontSize:10, marginTop:2 }}>◀ ACTING</div>}
               </div>
@@ -612,7 +617,7 @@ export default function PokerGame() {
               community[i] ? <CardFace key={i} card={community[i]}/> : <EmptyCard key={i}/>
             ))}
           </div>
-          <div style={{ marginTop:12, color:'#c8a84b', fontSize:18, fontWeight:'bold' }}>Pot: {pot}</div>
+          <div style={{ marginTop:12, color:'#c8a84b', fontSize:18, fontWeight:'bold' }}>Pot: Rp {formatIDR(pot)}</div>
           {showdown && (
             <div style={{ marginTop:8, color:'#e8d5a0', fontSize:13 }}>
               🏆 {showdown.bestHand} — {showdown.winners.map(w=>w.name).join(' & ')} win!
@@ -634,9 +639,9 @@ export default function PokerGame() {
                 {human.isFolded&&<div style={{ color:'#e74c3c', fontSize:14, marginTop:6 }}>FOLDED</div>}
               </div>
               <div style={{ textAlign:'right' }}>
-                <div style={{ color:'#c8a84b', fontSize:20, fontWeight:'bold' }}>💰 {human.chips}</div>
-                {human.currentBet>0&&<div style={{ color:'rgba(200,168,75,0.6)', fontSize:13 }}>Bet: {human.currentBet}</div>}
-                <div style={{ color:'rgba(200,168,75,0.6)', fontSize:13 }}>To Call: {callAmt}</div>
+                <div style={{ color:'#c8a84b', fontSize:20, fontWeight:'bold' }}>💰 Rp {formatIDR(human.chips)}</div>
+                {human.currentBet>0&&<div style={{ color:'rgba(200,168,75,0.6)', fontSize:13 }}>Bet: Rp {formatIDR(human.currentBet)}</div>}
+                <div style={{ color:'rgba(200,168,75,0.6)', fontSize:13 }}>To Call: Rp {formatIDR(callAmt)}</div>
               </div>
             </div>
 
@@ -649,7 +654,7 @@ export default function PokerGame() {
                 </button>
                 <button onClick={()=>handleAction('call')}
                   style={{ padding:'10px 20px', background:'rgba(39,174,96,0.15)', border:'1px solid rgba(39,174,96,0.4)', borderRadius:8, color:'#2ecc71', cursor:'pointer', fontFamily:'Georgia,serif', fontSize:14, fontWeight:'bold' }}>
-                  {callAmt===0 ? 'Check' : `Call ${callAmt}`}
+                  {callAmt===0 ? 'Check' : `Call Rp ${formatIDR(callAmt)}`}
                 </button>
                 <input type="number" value={raiseInput} onChange={e=>setRaiseInput(e.target.value)}
                   placeholder="Raise amt" min={1} max={human.chips}
@@ -693,7 +698,7 @@ export default function PokerGame() {
           {players.map(p=>(
             <div key={p.name} style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(180,140,60,0.15)', borderRadius:6, padding:'4px 10px', fontSize:12 }}>
               <span style={{ color:'rgba(200,168,75,0.7)' }}>{p.isCpu ? p.name.replace(/Bot_\d+\s?/,'🤖 ') : '👤 '+p.name}</span>
-              <span style={{ color:'#c8a84b', marginLeft:6, fontWeight:'bold' }}>{p.chips}</span>
+              <span style={{ color:'#c8a84b', marginLeft:6, fontWeight:'bold' }}>Rp {formatIDR(p.chips)}</span>
             </div>
           ))}
         </div>
