@@ -321,6 +321,7 @@ export default function PokerGame({
         if (total <= callAmt && p.chips > callAmt) return;
         p.chips -= total;
         p.currentBet += total;
+        p.totalContribution += total;
         newPot += total;
         newHb = p.currentBet;
         addLog(`${p.name} raises to Rp ${formatIDR(p.currentBet)}`, 'raise');
@@ -329,6 +330,7 @@ export default function PokerGame({
         const actual = Math.min(callAmt, p.chips);
         p.chips -= actual;
         p.currentBet += actual;
+        p.totalContribution += actual;
         newPot += actual;
         addLog(actual === 0 ? `${p.name} checks` : `${p.name} calls Rp ${formatIDR(actual)}`, 'call');
       }
